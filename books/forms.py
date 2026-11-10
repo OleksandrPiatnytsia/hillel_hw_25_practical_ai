@@ -162,5 +162,8 @@ class BookFilterForm(forms.Form):
         price_min = cleaned_data.get("price_min")
         price_max = cleaned_data.get("price_max")
         if price_min is not None and price_max is not None and price_min > price_max:
+            # Out of cleaned_data: the catalog ignores both prices (instead of
+            # "from 500 to 100" = always empty) and applies the other filters
+            del cleaned_data["price_min"], cleaned_data["price_max"]
             raise forms.ValidationError(_("“Price from” can't be greater than “Price to”."))
         return cleaned_data

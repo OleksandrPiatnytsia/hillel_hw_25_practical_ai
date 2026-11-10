@@ -204,6 +204,20 @@ async def test_order_status_json(order_of_ann, language, expected):
     }
 
 
+async def test_order_status_without_payments_is_zero_paid():
+    """AI review (AI_REVIEW.md, order_status): the sum of the payments now
+    comes from the same query as the order; no payments -> SUM is NULL."""
+    order = await sync_to_async(OrderFactory)(total=Decimal("300.00"))
+    client = AsyncClient()
+    await client.aforce_login(order.user)  # cached by the factory, no query
+
+    response = await client.get(reverse("orders:status", args=[order.pk]))
+
+    assert response.json()["payment_status"] == Order.PaymentStatus.UNPAID
+    assert response.json()["paid_amount"] == "0,00"  # default language: uk
+    assert response.json()["amount_due"] == "300,00"
+
+
 # ---------------------------------------------------------------------------
 # Static files under ASGI (AsyncWhiteNoiseMiddleware)
 # ---------------------------------------------------------------------------

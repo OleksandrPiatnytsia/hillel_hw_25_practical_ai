@@ -3,13 +3,13 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.formats import number_format
 from django.utils.translation import gettext as _
 from django.views.decorators.cache import never_cache
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from django.views.generic import ListView
 
 from books.views import ElidedPaginationMixin
@@ -21,6 +21,8 @@ from .services import OrderError, cancel_order, create_order
 
 
 @login_required  # anonymous -> LOGIN_URL?next=/orders/checkout/; the cart stays
+# PUT / DELETE / PATCH -> 405 (they used to get the form page with 200)
+@require_http_methods(["GET", "POST"])
 def checkout(request):
     """Delivery form + cart summary; POST creates the order.
 
@@ -152,8 +154,8 @@ async def order_status(request, pk):
 
     Async view with async database queries:
     - await request.auser(): the user (request.user would make a sync query);
-    - .afirst(): the order, only the needed columns (values());
-    - .aaggregate(): SUM of the succeeded payments in SQL.
+    - .afirst(): the order and SUM of its succeeded payments, only the
+      needed columns (values()), in one query.
     JSON answers for errors (401 / 404), not redirects or HTML pages: the
     caller is JavaScript, not a person.
     """
@@ -164,19 +166,25 @@ async def order_status(request, pk):
     if not user.is_authenticated:
         return JsonResponse({"error": "login required"}, status=401)
 
-    # user=user: someone else's order looks the same as a missing one
+    # One SQL query: the order and the sum of its succeeded payments
+    # (LEFT JOIN payments + GROUP BY order + SUM ... FILTER (WHERE ...)).
+    # user=user: someone else's order looks the same as a missing one.
     order = await (
         Order.objects.filter(pk=pk, user=user)
-        .values("pk", "status", "payment_status", "total")
+        .annotate(
+            paid=Sum(
+                "payments__amount",
+                filter=Q(payments__status=Payment.Status.SUCCEEDED),
+            )
+        )
+        .values("pk", "status", "payment_status", "total", "paid")
         .afirst()
     )
     if order is None:
         return JsonResponse({"error": "not found"}, status=404)
 
-    paid = await Payment.objects.filter(
-        order_id=pk, status=Payment.Status.SUCCEEDED
-    ).aaggregate(total=Sum("amount"))
-    paid_amount = paid["total"] or Decimal("0.00")
+    # SUM over no rows is NULL in SQL -> None in Python
+    paid_amount = order["paid"] or Decimal("0.00")
     amount_due = max(order["total"] - paid_amount, Decimal("0.00"))
 
     return JsonResponse(

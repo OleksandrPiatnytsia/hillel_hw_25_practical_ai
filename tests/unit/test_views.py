@@ -44,6 +44,41 @@ def test_book_list_sorts_by_price(client):
     assert [book.title for book in response.context["books"]] == ["Expensive", "Cheap"]
 
 
+def test_book_list_wrong_parameter_keeps_the_other_filters(client):
+    """AI review (AI_REVIEW.md, BookListView): an invalid ?category= used to
+    drop ALL filters and show the whole catalog."""
+    BookFactory(title="Kobzar")
+    BookFactory(title="Zakhar Berkut")
+
+    response = client.get(reverse("books:list"), {"q": "kobzar", "category": "deleted-category"})
+
+    assert "category" in response.context["filter_form"].errors  # the error is shown
+    assert [book.title for book in response.context["books"]] == ["Kobzar"]
+
+
+def test_book_list_price_from_greater_than_to_ignores_only_prices(client):
+    BookFactory(title="Kobzar", price=100)
+    BookFactory(title="Zakhar Berkut", price=200)
+
+    response = client.get(
+        reverse("books:list"), {"q": "kobzar", "price_min": "500", "price_max": "100"}
+    )
+
+    assert response.context["filter_form"].non_field_errors()
+    assert [book.title for book in response.context["books"]] == ["Kobzar"]
+
+
+@pytest.mark.parametrize(
+    ("params", "expected_order"),
+    [({}, ("title", "pk")), ({"sort": "-price"}, ("-price", "pk"))],
+)
+def test_book_list_order_always_ends_with_pk(client, params, expected_order):
+    """Books with an equal title / price must not jump between pages."""
+    response = client.get(reverse("books:list"), params)
+
+    assert response.context["paginator"].object_list.query.order_by == expected_order
+
+
 def test_book_detail_shows_quantity_in_cart(client):
     book = BookFactory()
     client.post(reverse("cart:add", args=[book.pk]), {"quantity": 2})
@@ -156,6 +191,14 @@ def test_checkout_with_empty_cart_goes_to_cart(customer_client):
     response = customer_client.get(reverse("orders:checkout"))
 
     assertRedirects(response, reverse("cart:detail"))
+
+
+@pytest.mark.parametrize("method", ["put", "patch", "delete"])
+def test_checkout_accepts_only_get_and_post(customer_client, method):
+    """AI review (AI_REVIEW.md, checkout): other methods got the form with 200."""
+    response = getattr(customer_client, method)(reverse("orders:checkout"))
+
+    assert response.status_code == 405
 
 
 def test_checkout_form_is_prefilled_from_profile(customer, customer_client):

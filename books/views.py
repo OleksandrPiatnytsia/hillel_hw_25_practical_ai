@@ -62,28 +62,30 @@ class BookListView(ElidedPaginationMixin, ListView):
 
         # Unbound form (None) when there are no GET params -> no validation errors
         self.filter_form = BookFilterForm(self.request.GET or None)
-        if not self.filter_form.is_valid():
-            return queryset
+        # After is_valid() cleaned_data holds only the fields that passed:
+        # one wrong parameter (an old link to a deleted category) shows its
+        # error, and the other filters (?q=...) still work, instead of the
+        # whole catalog without any filter
+        self.filter_form.is_valid()
+        data = getattr(self.filter_form, "cleaned_data", {})  # unbound: none
 
-        data = self.filter_form.cleaned_data
-        if data["q"]:
+        if data.get("q"):
             queryset = queryset.filter(
                 Q(title__icontains=data["q"]) | Q(author__name__icontains=data["q"])
             )
-        if data["category"]:
+        if data.get("category"):
             queryset = queryset.filter(categories=data["category"])
-        if data["author"]:
+        if data.get("author"):
             queryset = queryset.filter(author=data["author"])
-        queryset = queryset.by_stock_status(data["stock"])
-        if data["price_min"] is not None:
+        queryset = queryset.by_stock_status(data.get("stock"))
+        if data.get("price_min") is not None:
             queryset = queryset.filter(price__gte=data["price_min"])
-        if data["price_max"] is not None:
+        if data.get("price_max") is not None:
             queryset = queryset.filter(price__lte=data["price_max"])
-        if data["sort"]:
-            # "pk" as a tie-breaker: books with equal price keep a stable order,
-            # so the same book doesn't jump between pages
-            queryset = queryset.order_by(data["sort"], "pk")
-        return queryset
+        # Always with "pk" as a tie-breaker, the default sort (Book.Meta.ordering
+        # = title) too: books with an equal title or price keep a stable order,
+        # so the same book doesn't jump between pages
+        return queryset.order_by(data.get("sort") or "title", "pk")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
