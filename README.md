@@ -1,17 +1,16 @@
-# hillel_hw_24 — Django: інтернаціоналізація, асинхронні view і тести
+# hillel_hw_25 — Django: практичне використання AI
 
-Навчальний Django-проєкт (Hillel). Продовження ДЗ №21 (книгарня: кошик, замовлення, Stripe). У цьому ДЗ:
+Навчальний Django-проєкт (Hillel). Продовження ДЗ №24 (книгарня: кошик, замовлення,
+Stripe, дві мови, async view, тести). У цьому ДЗ AI покращує проєкт:
 
-- **інтерфейс українською та англійською**: моделі, форми, шаблони, повідомлення,
-  адмінка; файли `locale/uk/.../django.po` і `.mo`; перемикач мови в навбарі,
-  мова зберігається в профілі (`User.language`);
-- **листи мовою отримувача**, а не мовою того, хто зараз на сайті;
-- **3 асинхронні view** з асинхронними запитами до бази: `/health/`,
-  `/orders/<pk>/status/` (сторінка оплати сама дізнається, що webhook прийшов),
-  `/search/?q=` (підказки пошуку в навбарі);
-- **ASGI у Docker**: gunicorn з воркерами uvicorn, пул з'єднань з PostgreSQL;
-- **тести на pytest-django**: 140 unit і 54 integration, factory-boy, фейковий
-  Stripe і перехоплення пошти, покриття 96% (мінімум 70% перевіряється при кожному запуску).
+- **code review трьох view** (`checkout`, `BookListView`, async `order_status`):
+  16 рекомендацій, кожна прийнята або відхилена з причиною, 5 прийнятих внесено
+  в код разом із тестами — [`AI_REVIEW.md`](AI_REVIEW.md);
+- **тести моделей**, написані з AI і перевірені вручну: позначка
+  `# Generated with AI, reviewed and modified`, покриття моделей `Book`, `Order`,
+  `Payment` — 100%;
+- **документація**: docstrings для view, де їх не було; промпти й висновки —
+  [`AI_PROMPTS.md`](AI_PROMPTS.md); звіт про покриття — [`COVERAGE.md`](COVERAGE.md) (96.75%).
 
 ## Стек
 
@@ -28,6 +27,50 @@
 - django-debug-toolbar 8.0 (тільки для розробки, `requirements-dev.txt`)
 - Тести (`requirements-dev.txt`): pytest 9, pytest-django, pytest-asyncio, pytest-cov,
   factory-boy, polib
+
+## AI Usage
+
+Інструмент — **Claude Code** (модель Claude Opus 5.5) у терміналі: читає код,
+змінює файли, запускає тести. Команди, які змінюють середовище (`pip`,
+`git commit`, `docker compose`, міграції), виконувалися вручну.
+
+Які промпти використовувалися (повний текст — у [`AI_PROMPTS.md`](AI_PROMPTS.md)):
+
+1. **Головний:** умова ДЗ + «треба взяти по мінімуму те чого ми не робили…
+   проведи аналіз, запропонуй план виконання». AI порівняв умову з тим, що вже
+   було в проєкті, і запропонував план з 4 етапів; план затверджено.
+2. **Code review**, один шаблон для трьох views: коректність, безпека,
+   SQL-запити, читабельність; для кожної проблеми — сценарій і виправлений код.
+3. **Тести моделей:** знайти непокриті рядки `Book`, `Order`, `Payment`,
+   написати на них тести з фабриками, очікувані значення брати з коду,
+   позначити кожен тест `# Generated with AI, reviewed and modified`.
+4. **Docstrings:** для views без них — метод і адреса, хто викликає,
+   обмеження, куди перенаправляє; кнопки звірити з шаблонами.
+5. **Документація:** README, `AI_PROMPTS.md`, `COVERAGE.md`; цифри тільки з
+   реального запуску `pytest`.
+
+| Що | Як | Результат |
+|---|---|---|
+| Code review | один промпт для трьох view: коректність, безпека, SQL-запити, читабельність | [`AI_REVIEW.md`](AI_REVIEW.md): початковий код → рекомендації → рішення → фінальний код |
+| Тести | AI шукає непокриті рядки моделей і пише тести на них | `tests/unit/test_models.py`: 3 нові тести, моделі на 100% |
+| Документація | docstrings для `cart_remove`, `cart_clear`, `order_detail`, `order_cancel` | адреса, метод, що робить view і куди перенаправляє |
+
+Прийняті рекомендації рев'ю:
+
+- `checkout`: `@require_http_methods(["GET", "POST"])` — на PUT / PATCH / DELETE
+  тепер 405 замість сторінки з формою;
+- `BookListView`: неправильний параметр (`?category=<видалена>`) показує помилку,
+  а решта фільтрів працює, замість усього каталогу; при «ціна від > ціни до»
+  ігноруються лише ціни; `pk` завжди останній у сортуванні (стабільні сторінки);
+- `order_status`: замовлення і сума успішних платежів — один SQL-запит
+  (`annotate(Sum(..., filter=Q(...)))`) замість двох.
+
+Як перевірявся результат AI:
+
+- кожну рекомендацію рев'ю приймав або відхиляв я, а не AI;
+- кожна зміна в коді має тест, увесь набір (212 тестів) проходить;
+- твердження в документах AI звіряв з кодом (дві неточності знайдено й виправлено,
+  див. [`AI_PROMPTS.md`](AI_PROMPTS.md)).
 
 ## Сторінки сайту
 
@@ -424,11 +467,13 @@ INFO config.middleware GET /create/ 403 3.6ms user=ann
 | `category` | категорія за `slug` |
 | `author` | автор за `pk` |
 | `stock` | наявність: `in_stock` / `low` (≤ 5) / `out` |
-| `price_min`, `price_max` | діапазон ціни; якщо «від» більше за «до», форма покаже помилку |
+| `price_min`, `price_max` | діапазон ціни; якщо «від» більше за «до», форма покаже помилку, а ціни не враховуються |
 | `sort` | `title`, `-title`, `author__name`, `price`, `-price`, `-created_at` |
 
-Некоректні значення (`?price_min=abc`) не ламають сторінку: форма показує
-помилку, а каталог виводить усі книги.
+Некоректні значення (`?price_min=abc`, видалена категорія) не ламають сторінку:
+форма показує помилку біля поля, а решта фільтрів працює (у `cleaned_data` після
+`is_valid()` лишаються лише поля, що пройшли перевірку). Сортування завжди
+закінчується `pk`: книжки з однаковою назвою чи ціною не «стрибають» між сторінками.
 
 ## Статичні файли і media
 
@@ -817,7 +862,7 @@ python manage.py compilemessages --ignore=.venv            # .po -> .mo
 | View | Асинхронні запити | Хто викликає |
 |---|---|---|
 | `health` (`config/views.py`) | `ContentType.objects.aexists()`, `cache.aset` / `aget` / `adelete`, `asyncio.gather` | healthcheck Docker |
-| `order_status` (`orders/views.py`) | `await request.auser()`, `.values(...).afirst()`, `.aaggregate(Sum(...))` | `static/js/payment_status.js` кожні 2 с |
+| `order_status` (`orders/views.py`) | `await request.auser()`, `.annotate(paid=Sum(..., filter=Q(...))).values(...).afirst()`: замовлення і сума платежів одним запитом | `static/js/payment_status.js` кожні 2 с |
 | `book_search` (`books/views.py`) | `async for book in queryset` (з `select_related`) | `static/js/book_search.js` під час набору |
 
 ```python
@@ -828,13 +873,15 @@ async def order_status(request, pk):
     if not user.is_authenticated:
         return JsonResponse({"error": "login required"}, status=401)
     order = await (Order.objects.filter(pk=pk, user=user)
-                   .values("pk", "status", "payment_status", "total").afirst())
+                   .annotate(paid=Sum("payments__amount",
+                                      filter=Q(payments__status=Payment.Status.SUCCEEDED)))
+                   .values("pk", "status", "payment_status", "total", "paid").afirst())
     ...
 ```
 
 - У async view не можна викликати синхронний ORM: Django кине
   `SynchronousOnlyOperation`. Тому `request.auser()` замість `request.user`,
-  `afirst()`, `aaggregate()`, `async for`.
+  `afirst()`, `async for`.
 - **Сторінка «Оплата підтверджується».** Клієнт часто повертається зі Stripe
   раніше, ніж приходить webhook. Сторінка опитує `/orders/<pk>/status/` і, щойно
   `payment_status` змінився, сама відкриває замовлення (максимум ~1 хвилина).
@@ -890,11 +937,11 @@ open htmlcov/index.html               # непокриті рядки підсв
 
 | | Кількість | Що перевіряють |
 |---|---|---|
-| `tests/unit/` | 140 | одна функція, модель, форма або один запит |
+| `tests/unit/` | 151 | одна функція, модель, форма або один запит |
 | `tests/integration/` | 54 | сценарії з кількох кроків: кошик → замовлення → Stripe → webhook → лист |
 | `tests/test_setup.py` | 7 | сама інфраструктура: налаштування, фабрики, фейки |
 
-Покриття **96.58%**; `--cov-fail-under=70` у `pytest.ini`: якщо покриття впаде
+Покриття **96.75%** (таблиця по файлах — [`COVERAGE.md`](COVERAGE.md)); `--cov-fail-under=70` у `pytest.ini`: якщо покриття впаде
 нижче 70%, `pytest` завершиться з помилкою.
 
 ### Структура
@@ -906,7 +953,8 @@ tests/
 ├── fakes.py               # FakeStripeClient, підписані події webhook
 ├── helpers.py             # message_levels(), дані форм адмінки
 ├── unit/
-│   ├── test_models.py, test_forms.py, test_cart_and_helpers.py, test_views.py
+│   ├── test_models.py             # моделі на 100%; кожен тест позначено «Generated with AI, reviewed and modified»
+│   ├── test_forms.py, test_cart_and_helpers.py, test_views.py
 │   ├── test_language.py           # перемикач мови, User.language
 │   ├── test_async_views.py        # async view через AsyncClient
 │   ├── test_payment_services.py   # відмови й помилки оплат
