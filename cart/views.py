@@ -69,6 +69,13 @@ def cart_add(request, book_id):
 
 @require_POST
 def cart_remove(request, book_id):
+    """POST /cart/remove/<book_id>/ -> remove all copies of the book from the cart.
+
+    The "×" button on the cart page. POST only: a GET link could be opened
+    by a browser prefetch or a crawler and empty the cart by itself.
+    A missing book -> 404. Afterwards back to the page the user came from
+    (_redirect_back: only to this site), with a message.
+    """
     book = get_object_or_404(Book, pk=book_id)
     Cart(request).remove(book)
     messages.success(request, _("“%(title)s” removed from the cart.") % {"title": book.title})
@@ -77,6 +84,11 @@ def cart_remove(request, book_id):
 
 @require_POST
 def cart_clear(request):
+    """POST /cart/clear/ -> empty the whole cart, then the (empty) cart page.
+
+    The "Clear cart" button. Only the session key "cart" is removed; the
+    rest of the session (login, language) stays.
+    """
     Cart(request).clear()
     messages.success(request, _("The cart is empty now."))
     return redirect("cart:detail")

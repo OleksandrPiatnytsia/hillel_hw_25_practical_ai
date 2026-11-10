@@ -116,6 +116,12 @@ class OrderListView(LoginRequiredMixin, ElidedPaginationMixin, ListView):
 
 @login_required
 def order_detail(request, pk):
+    """GET /orders/<pk>/ -> one order of the current user.
+
+    Items, delivery data, both statuses, the paid sum and the "Pay" /
+    "Cancel" buttons (template orders/order_detail.html). The page checkout
+    redirects to after the order is created.
+    """
     # user=request.user: someone else's order -> 404, the same as a missing
     # one (403 would tell that order #pk exists)
     order = get_object_or_404(
@@ -127,6 +133,13 @@ def order_detail(request, pk):
 @login_required
 @require_POST
 def order_cancel(request, pk):
+    """POST /orders/<pk>/cancel/ -> the customer cancels their order.
+
+    Allowed only for a new unpaid order (Order.can_be_cancelled_by_customer);
+    the books go back to the stock and an open Stripe page is closed
+    (orders.services.cancel_order). Success or the reason why not -> a
+    message, then back to the order page.
+    """
     # Someone else's or a missing order -> 404, like order_detail.
     # cancel_order() checks the owner again under the lock; this is for
     # the right answer to the user.
